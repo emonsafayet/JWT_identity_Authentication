@@ -1,6 +1,7 @@
 ﻿using JWTAuthentication.BindingModel;
 using JWTAuthentication.Data.Entities;
 using JWTAuthentication.DTO;
+using JWTAuthentication.Enums;
 using JWTAuthentication.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -54,15 +55,15 @@ namespace JWTAuthentication.Controllers
                 var result = await _userManager.CreateAsync(user, model.Password);
                 if (result.Succeeded)
                 {
-                    return await Task.FromResult("User Has Been Registered!");
+                    return await Task.FromResult(new ResponseModel(ResponseCode.OK,"User Has Been Registered!",null));
                 }
 
-                return await Task.FromResult(string.Join(",", result.Errors.Select(x => x.Description).ToArray()));
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, "", result.Errors.Select(x => x.Description).ToArray()));
             }
             catch (Exception ex)
             {
 
-                return await Task.FromResult(ex.Message);
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
             }
 
         }
@@ -74,12 +75,12 @@ namespace JWTAuthentication.Controllers
             try
             {
                 var users = _userManager.Users.Select(x => new UserDTO(x.FullName, x.Email, x.UserName, x.DateCreated));
-                return await Task.FromResult(users);
+                return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, users));
             }
             catch (Exception ex)
             {
 
-                return await Task.FromResult(ex.Message);
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
             }
         }
 
@@ -96,16 +97,17 @@ namespace JWTAuthentication.Controllers
                         var appUser =await _userManager.FindByEmailAsync(model.Email);
                         var user = new UserDTO(appUser.FullName,appUser.Email,appUser.UserName,appUser.DateCreated);
                         user.Token = GenerateToken(appUser);
-
-                        return await Task.FromResult(user);
+                        
+                        return await Task.FromResult(new ResponseModel(ResponseCode.OK, "", user));
                     }
                 }
-                return await Task.FromResult("Invalid Email or Passowrd");
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Invalid Email or Passowrd", null));
+         
             }
             catch (Exception ex)
             {
 
-                return await Task.FromResult(ex.Message);
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
             }
         }
 

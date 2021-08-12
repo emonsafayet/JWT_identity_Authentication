@@ -24,6 +24,7 @@ namespace JWTAuthentication
 {
     public class Startup
     {
+        private readonly string _loginOrigin="_loginOrigin";
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
@@ -57,7 +58,13 @@ namespace JWTAuthentication
                     ValidAudience= audience
                 };
             });
-
+            services.AddCors(opt=> {
+                opt.AddPolicy(_loginOrigin,builder=> {
+                    builder.AllowAnyOrigin();
+                    builder.AllowAnyHeader();
+                    builder.AllowAnyMethod();
+                });
+            });
             services.AddControllers();
             services.AddSwaggerGen(c =>
             {
@@ -78,7 +85,7 @@ namespace JWTAuthentication
             app.UseHttpsRedirection();
             app.UseAuthentication();
             app.UseRouting();
-
+            app.UseCors(_loginOrigin);
             app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
