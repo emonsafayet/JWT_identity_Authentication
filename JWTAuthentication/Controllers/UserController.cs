@@ -106,7 +106,6 @@ namespace JWTAuthentication.Controllers
             }
             catch (Exception ex)
             {
-
                 return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
             }
         }
