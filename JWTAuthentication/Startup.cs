@@ -24,7 +24,7 @@ namespace JWTAuthentication
 {
     public class Startup
     {
-        private readonly string _loginOrigin="_loginOrigin";
+        private readonly string _loginOrigin = "_loginOrigin";
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
@@ -36,13 +36,19 @@ namespace JWTAuthentication
         public void ConfigureServices(IServiceCollection services)
         {
             services.Configure<JWTConfig>(Configuration.GetSection("JWTConfig"));
-            services.AddDbContext<AppDBContext>(opt=>{
+            services.AddDbContext<AppDBContext>(opt =>
+            {
                 opt.UseSqlServer(Configuration.GetConnectionString("DefaultConnnection"));
             });
             services.AddIdentity<AppUser, IdentityRole>(opt => { }).AddEntityFrameworkStores<AppDBContext>();
-           
+
             //JWT token configuration
-            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(opt=> {
+            services.AddAuthentication(x =>
+            {
+                x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            }).AddJwtBearer(opt =>
+            {
                 var key = Encoding.ASCII.GetBytes(Configuration["JWTConfig:key"]);
                 var issuer = Configuration["JWTConfig:Issuer"];
                 var audience = Configuration["JWTConfig:Audience"];
@@ -55,11 +61,13 @@ namespace JWTAuthentication
                     ValidateAudience = true,
                     RequireExpirationTime = true,
                     ValidIssuer = issuer,
-                    ValidAudience= audience
+                    ValidAudience = audience
                 };
             });
-            services.AddCors(opt=> {
-                opt.AddPolicy(_loginOrigin,builder=> {
+            services.AddCors(opt =>
+            {
+                opt.AddPolicy(_loginOrigin, builder =>
+                {
                     builder.AllowAnyOrigin();
                     builder.AllowAnyHeader();
                     builder.AllowAnyMethod();

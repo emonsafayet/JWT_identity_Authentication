@@ -3,6 +3,7 @@ using JWTAuthentication.Data.Entities;
 using JWTAuthentication.DTO;
 using JWTAuthentication.Enums;
 using JWTAuthentication.Models;
+using JWTAuthentication.Models.BindingModel;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -14,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -27,16 +29,19 @@ namespace JWTAuthentication.Controllers
         private readonly ILogger<UserController> _logger;
         private readonly UserManager<AppUser> _userManager;
         private readonly SignInManager<AppUser> _signInManager;
+        private readonly RoleManager<IdentityRole> _rolewManager;
+
         private readonly JWTConfig _jWTConfig;
 
 
         public UserController(ILogger<UserController> logger, IOptions<JWTConfig> jWTConfig,
-            UserManager<AppUser> userManager, SignInManager<AppUser> signInManager)
+            UserManager<AppUser> userManager, SignInManager<AppUser> signInManager, RoleManager<IdentityRole> rolewManager)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _logger = logger;
             _jWTConfig = jWTConfig.Value;
+            _rolewManager = rolewManager;
         }
 
         [HttpPost("RegisterUser")]
@@ -44,6 +49,10 @@ namespace JWTAuthentication.Controllers
         {
             try
             {
+                if (!await _rolewManager.RoleExistsAsync(model.Role))
+                {
+                    return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Role does not exist", null));
+                }
                 var user = new AppUser()
                 {
                     FullName = model.FullName,
@@ -55,7 +64,9 @@ namespace JWTAuthentication.Controllers
                 var result = await _userManager.CreateAsync(user, model.Password);
                 if (result.Succeeded)
                 {
-                    return await Task.FromResult(new ResponseModel(ResponseCode.OK,"User Has Been Registered!",null));
+                    var tempUser = await _userManager.FindByEmailAsync(model.Email);
+                    await _userManager.AddToRoleAsync(tempUser, model.Role);
+                    return await Task.FromResult(new ResponseModel(ResponseCode.OK, "User Has Been Registered!", null));
                 }
 
                 return await Task.FromResult(new ResponseModel(ResponseCode.Error, "", result.Errors.Select(x => x.Description).ToArray()));
@@ -67,15 +78,47 @@ namespace JWTAuthentication.Controllers
             }
 
         }
-        
-        [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+
+        [Authorize(Roles = "Admin")]
         [HttpGet("GetAllUser")]
         public async Task<object> GetAllUser()
         {
             try
             {
-                var users = _userManager.Users.Select(x => new UserDTO(x.FullName, x.Email, x.UserName, x.DateCreated));
-                return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, users));
+                List<UserDTO> allUserDTO = new List<UserDTO>();
+                var users = _userManager.Users.ToList();
+                foreach (var user in users)
+                {
+                    var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
+
+                    allUserDTO.Add(new UserDTO(user.FullName, user.Email, user.UserName, user.DateCreated, role));
+                }
+                return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, allUserDTO));
+            }
+            catch (Exception ex)
+            {
+
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
+            }
+        }
+
+        [Authorize(Roles = "User,Admin")]
+        [HttpGet("GetUserList")]
+        public async Task<object> GetUserList()
+        {
+            try
+            {
+                List<UserDTO> allUserDTO = new List<UserDTO>();
+                var users = _userManager.Users.ToList();
+                foreach (var user in users)
+                {
+                    var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
+                    if (role == "User")
+                    {
+                        allUserDTO.Add(new UserDTO(user.FullName, user.Email, user.UserName, user.DateCreated, role));
+                    }
+                }
+                return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, allUserDTO));
             }
             catch (Exception ex)
             {
@@ -94,15 +137,16 @@ namespace JWTAuthentication.Controllers
                     var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, false, false); ;
                     if (result.Succeeded)
                     {
-                        var appUser =await _userManager.FindByEmailAsync(model.Email);
-                        var user = new UserDTO(appUser.FullName,appUser.Email,appUser.UserName,appUser.DateCreated);
-                        user.Token = GenerateToken(appUser);
-                        
+                        var appUser = await _userManager.FindByEmailAsync(model.Email);
+                        var role = (await _userManager.GetRolesAsync(appUser)).FirstOrDefault();
+                        var user = new UserDTO(appUser.FullName, appUser.Email, appUser.UserName, appUser.DateCreated, role);
+                        user.Token = GenerateToken(appUser, role);
+
                         return await Task.FromResult(new ResponseModel(ResponseCode.OK, "", user));
                     }
                 }
                 return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Invalid Email or Passowrd", null));
-         
+
             }
             catch (Exception ex)
             {
@@ -110,7 +154,52 @@ namespace JWTAuthentication.Controllers
             }
         }
 
-        private string GenerateToken(AppUser user)
+        [Authorize(Roles = "Admin")]
+        [HttpPost("AddRole")]
+        public async Task<object> AddRole([FromBody] AddRoleBindingModel model)
+        {
+            try
+            {
+                if (model == null && model.Role == "")
+                {
+                    return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Parameters are missing", null));
+                }
+                if (await _rolewManager.RoleExistsAsync(model.Role))
+                {
+                    return await Task.FromResult(new ResponseModel(ResponseCode.OK, "Role already exist", null));
+                }
+                var role = new IdentityRole();
+                role.Name = model.Role;
+                var result = await _rolewManager.CreateAsync(role);
+                if (result.Succeeded)
+                {
+                    return await Task.FromResult(new ResponseModel(ResponseCode.OK, "Role added Successfully", null));
+                }
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, "something want please try again later", null));
+            }
+            catch (Exception ex)
+            {
+
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
+            }
+        }
+
+        [HttpGet("GetRoles")]
+        public async Task<object> GetRoles()
+        {
+            try
+            {
+                var roles= _rolewManager.Roles.Select(x => x.Name).ToList();     
+                return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, roles));
+            }
+            catch (Exception ex)
+            {
+
+                return await Task.FromResult(new ResponseModel(ResponseCode.Error, ex.Message, null));
+            }
+        }
+
+        private string GenerateToken(AppUser user,string role)
         {
             var jwtTokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_jWTConfig.key);
@@ -120,11 +209,12 @@ namespace JWTAuthentication.Controllers
                     new System.Security.Claims.Claim(JwtRegisteredClaimNames.NameId, user.Id),
                     new System.Security.Claims.Claim(JwtRegisteredClaimNames.Email, user.Email),
                     new System.Security.Claims.Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                    new System.Security.Claims.Claim(ClaimTypes.Role,role),
                 }),
                 Expires = DateTime.UtcNow.AddHours(12),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
                 Audience = _jWTConfig.Audience,
-                Issuer=_jWTConfig.Issuer,
+                Issuer = _jWTConfig.Issuer,
             };
             var token = jwtTokenHandler.CreateToken(tokenDescriptor);
             return jwtTokenHandler.WriteToken(token);
