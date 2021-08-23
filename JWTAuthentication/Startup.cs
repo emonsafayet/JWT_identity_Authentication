@@ -64,6 +64,10 @@ namespace JWTAuthentication
                     ValidAudience = audience
                 };
             });
+            services.AddAuthorization(option =>
+            {
+            option.AddPolicy("AdminPolicy",policy=>policy.RequireRole("Admin","User"));
+            });
             services.AddCors(opt =>
             {
                 opt.AddPolicy(_loginOrigin, builder =>

@@ -49,9 +49,15 @@ namespace JWTAuthentication.Controllers
         {
             try
             {
-                if (!await _rolewManager.RoleExistsAsync(model.Role))
+                if(model.Roles==null)
+                    return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Roles are missing", null));
+
+                foreach (var role in model.Roles)
                 {
-                    return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Role does not exist", null));
+                    if (!await _rolewManager.RoleExistsAsync(role))
+                    {
+                        return await Task.FromResult(new ResponseModel(ResponseCode.Error, "Role does not exist", null));
+                    }
                 }
                 var user = new AppUser()
                 {
@@ -65,7 +71,10 @@ namespace JWTAuthentication.Controllers
                 if (result.Succeeded)
                 {
                     var tempUser = await _userManager.FindByEmailAsync(model.Email);
-                    await _userManager.AddToRoleAsync(tempUser, model.Role);
+                    foreach (var role in model.Roles)
+                    {
+                        await _userManager.AddToRoleAsync(tempUser, role);
+                    }
                     return await Task.FromResult(new ResponseModel(ResponseCode.OK, "User Has Been Registered!", null));
                 }
 
@@ -79,7 +88,7 @@ namespace JWTAuthentication.Controllers
 
         }
 
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "AdminPolicy")]
         [HttpGet("GetAllUser")]
         public async Task<object> GetAllUser()
         {
@@ -89,9 +98,9 @@ namespace JWTAuthentication.Controllers
                 var users = _userManager.Users.ToList();
                 foreach (var user in users)
                 {
-                    var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
+                    var roles = (await _userManager.GetRolesAsync(user)).ToList();
 
-                    allUserDTO.Add(new UserDTO(user.FullName, user.Email, user.UserName, user.DateCreated, role));
+                    allUserDTO.Add(new UserDTO(user.FullName, user.Email, user.UserName, user.DateCreated, roles));
                 }
                 return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, allUserDTO));
             }
@@ -112,8 +121,8 @@ namespace JWTAuthentication.Controllers
                 var users = _userManager.Users.ToList();
                 foreach (var user in users)
                 {
-                    var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
-                    if (role == "User")
+                    var role = (await _userManager.GetRolesAsync(user)).ToList();
+                    if (role.Any(x => x == "User"))
                     {
                         allUserDTO.Add(new UserDTO(user.FullName, user.Email, user.UserName, user.DateCreated, role));
                     }
@@ -138,9 +147,9 @@ namespace JWTAuthentication.Controllers
                     if (result.Succeeded)
                     {
                         var appUser = await _userManager.FindByEmailAsync(model.Email);
-                        var role = (await _userManager.GetRolesAsync(appUser)).FirstOrDefault();
-                        var user = new UserDTO(appUser.FullName, appUser.Email, appUser.UserName, appUser.DateCreated, role);
-                        user.Token = GenerateToken(appUser, role);
+                        var roles = (await _userManager.GetRolesAsync(appUser)).ToList();
+                        var user = new UserDTO(appUser.FullName, appUser.Email, appUser.UserName, appUser.DateCreated, roles);
+                        user.Token = GenerateToken(appUser, roles);
 
                         return await Task.FromResult(new ResponseModel(ResponseCode.OK, "", user));
                     }
@@ -189,7 +198,7 @@ namespace JWTAuthentication.Controllers
         {
             try
             {
-                var roles= _rolewManager.Roles.Select(x => x.Name).ToList();     
+                var roles = _rolewManager.Roles.Select(x => x.Name).ToList();
                 return await Task.FromResult(new ResponseModel(ResponseCode.OK, null, roles));
             }
             catch (Exception ex)
@@ -199,18 +208,25 @@ namespace JWTAuthentication.Controllers
             }
         }
 
-        private string GenerateToken(AppUser user,string role)
+        private string GenerateToken(AppUser user, List<string> roles)
         {
+            var claims = new List<System.Security.Claims.Claim>()
+            {
+                  new System.Security.Claims.Claim(JwtRegisteredClaimNames.NameId, user.Id),
+                  new System.Security.Claims.Claim(JwtRegisteredClaimNames.Email, user.Email),
+                  new System.Security.Claims.Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+
+            };
+            foreach (var role in roles)
+            {
+                claims.Add(new System.Security.Claims.Claim(ClaimTypes.Role, role));
+            }
             var jwtTokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_jWTConfig.key);
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                Subject = new System.Security.Claims.ClaimsIdentity(new[] {
-                    new System.Security.Claims.Claim(JwtRegisteredClaimNames.NameId, user.Id),
-                    new System.Security.Claims.Claim(JwtRegisteredClaimNames.Email, user.Email),
-                    new System.Security.Claims.Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                    new System.Security.Claims.Claim(ClaimTypes.Role,role),
-                }),
+                Subject = new System.Security.Claims.ClaimsIdentity(claims),
+
                 Expires = DateTime.UtcNow.AddHours(12),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
                 Audience = _jWTConfig.Audience,
